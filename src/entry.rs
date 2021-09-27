@@ -467,7 +467,6 @@ impl<R: Read + Unpin> EntryFields<R> {
         };
 
         if parent.symlink_metadata().is_err() {
-            println!("create_dir_all {:?}", parent);
             fs::create_dir_all(&parent).await.map_err(|e| {
                 TarError::new(&format!("failed to create `{}`", parent.display()), e)
             })?;
