@@ -72,7 +72,7 @@ async fn simple_concat() {
 
     async fn decode_names<R>(ar: &mut Archive<R>) -> Vec<String>
     where
-        R: AsyncRead + Unpin + Sync + Send,
+        R: AsyncRead + Unpin,
     {
         let mut names = Vec::new();
         let mut entries = t!(ar.entries());
