@@ -12,31 +12,29 @@ use tokio::{
 ///
 /// This structure has methods for building up an archive from scratch into any
 /// arbitrary writer.
-pub struct Builder<W: Write + Unpin + Send + 'static> {
+///
+/// After you have added all the entries to the archive, call `finish` or
+/// `into_inner` to finish it and write the tar termination sections. If you drop
+/// the Builder without calling `finish` or `into_inner`, the termination sections
+/// are not written!
+///
+pub struct Builder<W: Write + Unpin + Send> {
     mode: HeaderMode,
     follow: bool,
     finished: bool,
     obj: Option<W>,
-    cancellation: Option<tokio::sync::oneshot::Sender<W>>,
 }
 
-impl<W: Write + Unpin + Send + 'static> Builder<W> {
+impl<W: Write + Unpin + Send> Builder<W> {
     /// Create a new archive builder with the underlying object as the
     /// destination of all data written. The builder will use
     /// `HeaderMode::Complete` by default.
     pub fn new(obj: W) -> Builder<W> {
-        let (tx, rx) = tokio::sync::oneshot::channel::<W>();
-        tokio::spawn(async move {
-            if let Ok(mut w) = rx.await {
-                let _ = w.write_all(&[0; 1024]).await;
-            }
-        });
         Builder {
             mode: HeaderMode::Complete,
             follow: true,
             finished: false,
             obj: Some(obj),
-            cancellation: Some(tx),
         }
     }
 
@@ -103,7 +101,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio_tar::{Builder, Header};
     ///
@@ -158,7 +156,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio_tar::{Builder, Header};
     ///
@@ -205,7 +203,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio_tar::Builder;
     ///
@@ -239,7 +237,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio_tar::Builder;
     ///
@@ -285,7 +283,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio::fs::File;
     /// use tokio_tar::Builder;
@@ -325,7 +323,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio::fs;
     /// use tokio_tar::Builder;
@@ -361,7 +359,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> { tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #
     /// use tokio::fs;
     /// use tokio_tar::Builder;
@@ -617,17 +615,4 @@ async fn append_dir_all<Dst: Write + Unpin + ?Sized>(
         }
     }
     Ok(())
-}
-
-impl<W: Write + Unpin + Send + 'static> Drop for Builder<W> {
-    fn drop(&mut self) {
-        // TODO: proper async cancellation
-        if !self.finished {
-            let _ = self
-                .cancellation
-                .take()
-                .unwrap()
-                .send(self.obj.take().unwrap());
-        }
-    }
 }
