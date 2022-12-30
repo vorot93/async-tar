@@ -12,10 +12,7 @@ use tokio::{
 ///
 /// This structure has methods for building up an archive from scratch into any
 /// arbitrary writer.
-///
-/// By default, on drop, writes [`TERMINATION`] into the end of the archive,
-/// use `skip_termination` method to disable this.
-pub struct Builder<W: Write + Unpin + Send + 'static> {
+pub struct Builder<W: Write + Unpin + Send> {
     mode: HeaderMode,
     follow: bool,
     finished: bool,
@@ -29,6 +26,9 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// Create a new archive builder with the underlying object as the
     /// destination of all data written. The builder will use
     /// `HeaderMode::Complete` by default.
+    ///
+    /// On drop, would write [`TERMINATION`] into the end of the archive,
+    /// use `skip_termination` method to disable this.
     pub fn new(obj: W) -> Builder<W> {
         let (tx, rx) = tokio::sync::oneshot::channel::<W>();
         tokio::spawn(async move {
@@ -42,6 +42,23 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
             finished: false,
             obj: Some(obj),
             cancellation: Some(tx),
+        }
+    }
+}
+
+impl<W: Write + Unpin + Send> Builder<W> {
+    /// Create a new archive builder with the underlying object as the
+    /// destination of all data written. The builder will use
+    /// `HeaderMode::Complete` by default.
+    ///
+    /// The [`TERMINATION`] symbol would not be written to the archive in the end.
+    pub fn new_non_terminated(obj: W) -> Builder<W> {
+        Builder {
+            mode: HeaderMode::Complete,
+            follow: true,
+            finished: false,
+            obj: Some(obj),
+            cancellation: None,
         }
     }
 
@@ -629,7 +646,7 @@ async fn append_dir_all<Dst: Write + Unpin + ?Sized>(
     Ok(())
 }
 
-impl<W: Write + Unpin + Send + 'static> Drop for Builder<W> {
+impl<W: Write + Unpin + Send> Drop for Builder<W> {
     fn drop(&mut self) {
         // TODO: proper async cancellation
         if !self.finished {
