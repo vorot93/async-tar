@@ -12,6 +12,9 @@ use tokio::{
 ///
 /// This structure has methods for building up an archive from scratch into any
 /// arbitrary writer.
+///
+/// By default, on drop, writes [`TERMINATION`] into the end of the archive,
+/// use `skip_termination` method to disable this.
 pub struct Builder<W: Write + Unpin + Send + 'static> {
     mode: HeaderMode,
     follow: bool,
@@ -19,6 +22,8 @@ pub struct Builder<W: Write + Unpin + Send + 'static> {
     obj: Option<W>,
     cancellation: Option<tokio::sync::oneshot::Sender<W>>,
 }
+
+const TERMINATION: &[u8; 1024] = &[0; 1024];
 
 impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// Create a new archive builder with the underlying object as the
@@ -28,7 +33,7 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
         let (tx, rx) = tokio::sync::oneshot::channel::<W>();
         tokio::spawn(async move {
             if let Ok(mut w) = rx.await {
-                let _ = w.write_all(&[0; 1024]).await;
+                let _ = w.write_all(TERMINATION).await;
             }
         });
         Builder {
@@ -51,6 +56,11 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// than adding a symlink to the archive. Defaults to true.
     pub fn follow_symlinks(&mut self, follow: bool) {
         self.follow = follow;
+    }
+
+    /// Skip writing final termination bytes into the archive.
+    pub fn skip_termination(&mut self) {
+        drop(self.cancellation.take());
     }
 
     /// Gets shared reference to the underlying object.
@@ -623,11 +633,9 @@ impl<W: Write + Unpin + Send + 'static> Drop for Builder<W> {
     fn drop(&mut self) {
         // TODO: proper async cancellation
         if !self.finished {
-            let _ = self
-                .cancellation
-                .take()
-                .unwrap()
-                .send(self.obj.take().unwrap());
+            if let Some(cancellation) = self.cancellation.take() {
+                cancellation.send(self.obj.take().unwrap()).ok();
+            }
         }
     }
 }
