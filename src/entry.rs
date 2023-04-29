@@ -472,7 +472,7 @@ impl<R: Read + Unpin> EntryFields<R> {
             })?;
         }
 
-        let canon_target = self.validate_inside_dst(&dst, parent).await?;
+        let canon_target = self.validate_inside_dst(dst, parent).await?;
 
         self.unpack(Some(&canon_target), &file_dst)
             .await
@@ -542,7 +542,7 @@ impl<R: Read + Unpin> EntryFields<R> {
                     // use canonicalization to ensure this guarantee. For hard
                     // links though they're canonicalized to their existing path
                     // so we need to validate at this time.
-                    Some(ref p) => {
+                    Some(p) => {
                         let link_src = p.join(src);
                         self.validate_inside_dst(p, &link_src).await?;
                         link_src
@@ -680,7 +680,7 @@ impl<R: Read + Unpin> EntryFields<R> {
         if self.preserve_mtime {
             if let Ok(mtime) = self.header.mtime() {
                 let mtime = FileTime::from_unix_time(mtime as i64, 0);
-                filetime::set_file_times(&dst, mtime, mtime).map_err(|e| {
+                filetime::set_file_times(dst, mtime, mtime).map_err(|e| {
                     TarError::new(&format!("failed to set mtime for `{}`", dst.display()), e)
                 })?;
             }
