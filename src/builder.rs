@@ -12,7 +12,7 @@ use tokio::{
 ///
 /// This structure has methods for building up an archive from scratch into any
 /// arbitrary writer.
-pub struct Builder<W: Write + Unpin + Send + 'static> {
+pub struct Builder<W: Write + Unpin + Send> {
     mode: HeaderMode,
     follow: bool,
     finished: bool,
@@ -20,15 +20,20 @@ pub struct Builder<W: Write + Unpin + Send + 'static> {
     cancellation: Option<tokio::sync::oneshot::Sender<W>>,
 }
 
+const TERMINATION: &[u8; 1024] = &[0; 1024];
+
 impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// Create a new archive builder with the underlying object as the
     /// destination of all data written. The builder will use
     /// `HeaderMode::Complete` by default.
+    ///
+    /// On drop, would write [`TERMINATION`] into the end of the archive,
+    /// use `skip_termination` method to disable this.
     pub fn new(obj: W) -> Builder<W> {
         let (tx, rx) = tokio::sync::oneshot::channel::<W>();
         tokio::spawn(async move {
             if let Ok(mut w) = rx.await {
-                let _ = w.write_all(&[0; 1024]).await;
+                let _ = w.write_all(TERMINATION).await;
             }
         });
         Builder {
@@ -37,6 +42,23 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
             finished: false,
             obj: Some(obj),
             cancellation: Some(tx),
+        }
+    }
+}
+
+impl<W: Write + Unpin + Send> Builder<W> {
+    /// Create a new archive builder with the underlying object as the
+    /// destination of all data written. The builder will use
+    /// `HeaderMode::Complete` by default.
+    ///
+    /// The [`TERMINATION`] symbol would not be written to the archive in the end.
+    pub fn new_non_terminated(obj: W) -> Builder<W> {
+        Builder {
+            mode: HeaderMode::Complete,
+            follow: true,
+            finished: false,
+            obj: Some(obj),
+            cancellation: None,
         }
     }
 
@@ -51,6 +73,11 @@ impl<W: Write + Unpin + Send + 'static> Builder<W> {
     /// than adding a symlink to the archive. Defaults to true.
     pub fn follow_symlinks(&mut self, follow: bool) {
         self.follow = follow;
+    }
+
+    /// Skip writing final termination bytes into the archive.
+    pub fn skip_termination(&mut self) {
+        drop(self.cancellation.take());
     }
 
     /// Gets shared reference to the underlying object.
@@ -619,15 +646,13 @@ async fn append_dir_all<Dst: Write + Unpin + ?Sized>(
     Ok(())
 }
 
-impl<W: Write + Unpin + Send + 'static> Drop for Builder<W> {
+impl<W: Write + Unpin + Send> Drop for Builder<W> {
     fn drop(&mut self) {
         // TODO: proper async cancellation
         if !self.finished {
-            let _ = self
-                .cancellation
-                .take()
-                .unwrap()
-                .send(self.obj.take().unwrap());
+            if let Some(cancellation) = self.cancellation.take() {
+                cancellation.send(self.obj.take().unwrap()).ok();
+            }
         }
     }
 }
