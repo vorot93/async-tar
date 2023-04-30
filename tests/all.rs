@@ -575,10 +575,6 @@ async fn extracting_malicious_tarball() {
         .await
         .map(|m| m.is_file())
         .unwrap_or(false));
-    assert!(fs::metadata(td.path().join("tmp/abs_evil2.txt"))
-        .await
-        .map(|m| m.is_file())
-        .unwrap_or(false));
     assert!(fs::metadata(td.path().join("tmp/abs_evil3.txt"))
         .await
         .map(|m| m.is_file())
@@ -587,14 +583,23 @@ async fn extracting_malicious_tarball() {
         .await
         .map(|m| m.is_file())
         .unwrap_or(false));
-    assert!(fs::metadata(td.path().join("tmp/abs_evil5.txt"))
-        .await
-        .map(|m| m.is_file())
-        .unwrap_or(false));
     assert!(fs::metadata(td.path().join("tmp/abs_evil6.txt"))
         .await
         .map(|m| m.is_file())
         .unwrap_or(false));
+
+    // Paths "//tmp/abs_evil2.txt" and "//./tmp/abs_evil5.txt" are not absolute for Windows,
+    // hence this test part does not work as expected on this OS.
+    if cfg!(not(windows)) {
+        assert!(fs::metadata(td.path().join("tmp/abs_evil2.txt"))
+            .await
+            .map(|m| m.is_file())
+            .unwrap_or(false));
+        assert!(fs::metadata(td.path().join("tmp/abs_evil5.txt"))
+            .await
+            .map(|m| m.is_file())
+            .unwrap_or(false));
+    }
 }
 
 #[tokio::test]
