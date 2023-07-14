@@ -854,7 +854,7 @@ impl<R: Read + Unpin> Read for EntryFields<R> {
         cx: &mut Context<'_>,
         into: &mut io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let mut this = self.get_mut();
+        let this = self.get_mut();
         loop {
             if this.read_state.is_none() {
                 this.read_state = this.data.pop_front();
