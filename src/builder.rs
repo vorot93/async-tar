@@ -2,6 +2,7 @@ use crate::{
     header::{bytes2path, path2bytes, HeaderMode},
     other, EntryType, Header,
 };
+use std::path::PathBuf;
 use std::{borrow::Cow, fs::Metadata, path::Path};
 use tokio::{
     fs,
@@ -414,6 +415,34 @@ impl<W: Write + Unpin + Send> Builder<W> {
             src_path.as_ref(),
             mode,
             follow,
+            |_, _, _, _| true,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// The same as append_dir_all, but it allows you to provide a function to filter the content before
+    /// it gets appended into the archive
+    pub async fn append_dir_all_filtered<P, Q, F>(
+        &mut self,
+        path: P,
+        src_path: Q,
+        filter: F,
+    ) -> io::Result<()>
+    where
+        P: AsRef<Path>,
+        Q: AsRef<Path>,
+        F: for<'a> FnMut(&'a PathBuf, &'a PathBuf, bool, bool) -> bool,
+    {
+        let mode = self.mode;
+        let follow = self.follow;
+        append_dir_all(
+            self.get_mut(),
+            path.as_ref(),
+            src_path.as_ref(),
+            mode,
+            follow,
+            filter,
         )
         .await?;
         Ok(())
@@ -613,16 +642,24 @@ async fn append_fs<Dst: Write + Unpin + ?Sized, R: Read + Unpin + ?Sized>(
     Ok(())
 }
 
-async fn append_dir_all<Dst: Write + Unpin + ?Sized>(
+async fn append_dir_all<F, Dst: Write + Unpin + ?Sized>(
     dst: &mut Dst,
     path: &Path,
     src_path: &Path,
     mode: HeaderMode,
     follow: bool,
-) -> io::Result<()> {
+    mut filter: F,
+) -> io::Result<()>
+where
+    F: for<'a> FnMut(&'a PathBuf, &'a PathBuf, bool, bool) -> bool,
+{
     let mut stack = vec![(src_path.to_path_buf(), true, false)];
     while let Some((src, is_dir, is_symlink)) = stack.pop() {
         let dest = path.join(src.strip_prefix(src_path).unwrap());
+
+        if !filter(&src, &dest, is_dir, is_symlink) {
+            continue;
+        }
 
         // In case of a symlink pointing to a directory, is_dir is false, but src.is_dir() will return true
         if is_dir || (is_symlink && follow && src.is_dir()) {
